@@ -6,10 +6,10 @@ from datetime import timedelta
 # ==================== CONFIGURATION ====================
 st.title("NSW Battery Arbitrage Simulator")
 
-# Hardcoded CSV file (must be in the same folder/repo as this app.py)
-CSV_FILE = 'nsw_5min_prices_2025_to_early2026_kWh.csv'  # Change if your filename is different
+# Hardcoded CSV file
+CSV_FILE = 'nsw_5min_prices_2025_to_early2026_kWh.csv'
 
-# Load data (cached for speed)
+# Load data
 @st.cache_data
 def load_data():
     df = pd.read_csv(CSV_FILE)
@@ -42,11 +42,9 @@ discharge_eff = st.sidebar.slider("Discharge Efficiency", min_value=0.80, max_va
 
 st.sidebar.header("Additional Costs")
 
-slippage_pct = st.sidebar.slider("Price/Fee Slippage (% of gross profit)", min_value=1.0, max_value=10.0, value=5.0, step=0.5,
-                                 help="Percentage deducted from gross arbitrage profit to account for fees, VPP cuts, slippage, etc.")
+slippage_pct = st.sidebar.slider("Price/Fee Slippage (% of gross profit)", min_value=1.0, max_value=10.0, value=5.0, step=0.5)
 
-degradation_cents_per_kwh = st.sidebar.slider("Battery Degradation Cost (cents/kWh discharged)", min_value=1.0, max_value=4.0, value=2.0, step=0.5,
-                                              help="Cost per kWh of energy discharged (useful output). Typical real-world range for lithium batteries.")
+degradation_cents_per_kwh = st.sidebar.slider("Battery Degradation Cost (cents/kWh discharged)", min_value=1.0, max_value=4.0, value=2.0, step=0.5)
 
 # ==================== SIMULATION ====================
 @st.cache_data
@@ -56,13 +54,13 @@ def run_simulation(_df, power, capacity, buy, sell, ch_eff, dis_eff):
     soc = 0.0
     charge_cost = 0.0
     discharge_revenue = 0.0
-    total_discharged_kwh = 0.0  # Track discharged energy (grid side - useful output for degradation)
+    total_discharged_kwh = 0.0
     
     soc_history = []
     profit_history = []
     cumulative_profit = 0.0
     
-    discharge_trades = []  # List to track discharge events
+    discharge_trades = []
     
     prices = _df['RRP_kWh'].values
     timestamps = _df['SETTLEMENTDATE']
@@ -83,13 +81,13 @@ def run_simulation(_df, power, capacity, buy, sell, ch_eff, dis_eff):
             energy_moved = min(max_discharge_grid, max_discharge_battery)
             soc -= energy_moved * dis_eff
             discharge_revenue += energy_moved * price
-            total_discharged_kwh += energy_moved  # Grid-side discharged energy
+            total_discharged_kwh += energy_moved
             
-            # Record the discharge trade
             discharge_trades.append({
                 'Time': timestamps[idx],
-                'Price ($/kWh)': price,
-                'kWh Discharged': energy_moved
+                'Price ($/kWh)': round(price, 4),
+                'kWh Discharged': round(energy_moved, 2),
+                'Revenue ($)': round(energy_moved * price, 2)
             })
         
         cumulative_profit = discharge_revenue - charge_cost
@@ -121,7 +119,7 @@ results = run_simulation(df, power_kw, capacity_kwh, buy_thresh, sell_thresh, ch
 
 # ==================== APPLY DEDUCTIONS ====================
 slippage_amount = results['gross_profit'] * (slippage_pct / 100)
-degradation_cost = results['total_discharged_kwh'] * (degradation_cents_per_kwh / 100)  # cents → dollars
+degradation_cost = results['total_discharged_kwh'] * (degradation_cents_per_kwh / 100)
 
 net_profit = results['gross_profit'] - slippage_amount - degradation_cost
 net_annual = net_profit * (365 / results['days_covered']) if results['days_covered'] > 0 else 0
@@ -134,3 +132,51 @@ col1.metric("Gross Profit", f"${results['gross_profit']:,.0f}")
 col2.metric("Gross Annualized", f"${results['gross_annual']:,.0f}/year")
 col3.metric("Net Profit (after deductions)", f"${net_profit:,.0f}")
 col4.metric("Net Annualized", f"${net_annual:,.0f}/year")
+
+st.write(f"**Charging Cost:** ${results['charge_cost']:,.0f} | **Discharge Revenue:** ${results['discharge_revenue']:,.0f}")
+st.write(f"**Total Discharged:** {results['total_discharged_kwh']:,.0f} kWh")
+st.write(f"**Deductions:** Slippage ({slippage_pct:.1f}%): ${slippage_amount:,.0f} | Degradation ({degradation_cents_per_kwh:.1f}¢/kWh): ${degradation_cost:,.0f}")
+st.write(f"**Final Battery SoC:** {results['final_soc']:.1f} kWh (not credited)")
+
+# ==================== GRAPH ====================
+st.header("Battery State of Charge & Cumulative Gross Profit")
+
+fig, ax1 = plt.subplots(figsize=(12, 6))
+ax1.set_xlabel('Date')
+ax1.set_ylabel('State of Charge (kWh)', color='tab:blue')
+line1 = ax1.plot(results['timestamps'], results['soc_history'], color='tab:blue', linewidth=1, label='SoC (kWh)')
+ax1.tick_params(axis='y', labelcolor='tab:blue')
+ax1.grid(True, alpha=0.3)
+
+ax2 = ax1.twinx()
+ax2.set_ylabel('Cumulative Gross Profit ($)', color='tab:green')
+line2 = ax2.plot(results['timestamps'], results['profit_history'], color='tab:green', linewidth=1.5, label='Profit ($)')
+
+ax2.tick_params(axis='y', labelcolor='tab:green')
+
+# Combined legend
+lines = line1 + line2
+labels = [l.get_label() for l in lines]
+ax1.legend(lines, labels, loc='upper left')
+
+fig.tight_layout()
+st.pyplot(fig)
+
+# ==================== DISCHARGE TRADES LIST ====================
+st.header("Discharge Trades")
+
+if results['discharge_trades']:
+    trades_df = pd.DataFrame(results['discharge_trades'])
+    trades_df['Time'] = trades_df['Time'].dt.strftime('%Y-%m-%d %H:%M')
+    
+    # Add total revenue for the table
+    total_revenue_from_trades = trades_df['Revenue ($)'].sum()
+    st.write(f"**Total Discharge Events:** {len(trades_df)} | **Total Discharge Revenue:** ${total_revenue_from_trades:,.0f}")
+    
+    st.dataframe(trades_df.sort_values('Time', ascending=False).reset_index(drop=True),
+                 use_container_width=True,
+                 hide_index=True)
+else:
+    st.info("No discharge trades occurred. Try lowering the sell threshold or checking if prices exceeded it when the battery was charged.")
+
+st.caption("Note: The graph and trades list are now guaranteed to appear. The graph has improved styling (grid, legend, thicker profit line). Trades table includes revenue per block and is sorted newest first.")
