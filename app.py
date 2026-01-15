@@ -7,7 +7,7 @@ from datetime import timedelta
 st.title("NSW Battery Arbitrage Simulator")
 
 # Hardcoded CSV file
-CSV_FILE = 'nsw_5min_prices_2025_to_early2026_kWh.csv'
+CSV_FILE = 'nsw_5min_prices_2025_to_mid2026_kWh.csv'
 
 # Load data
 @st.cache_data
