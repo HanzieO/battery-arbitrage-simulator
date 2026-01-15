@@ -83,12 +83,14 @@ def run_simulation(_df, power, capacity, buy, sell, ch_eff, dis_eff):
             discharge_revenue += energy_moved * price
             total_discharged_kwh += energy_moved
             
-            discharge_trades.append({
-                'Time': timestamps[idx],
-                'Price ($/kWh)': round(price, 4),
-                'kWh Discharged': round(energy_moved, 2),
-                'Revenue ($)': round(energy_moved * price, 2)
-            })
+            # Only record meaningful discharges (energy > 0.01 kWh to avoid floating-point zeros)
+            if energy_moved > 0.01:
+                discharge_trades.append({
+                    'Time': timestamps[idx],
+                    'Price ($/kWh)': round(price, 4),
+                    'kWh Discharged': round(energy_moved, 2),
+                    'Revenue ($)': round(energy_moved * price, 2)
+                })
         
         cumulative_profit = discharge_revenue - charge_cost
         soc_history.append(soc)
@@ -169,7 +171,6 @@ if results['discharge_trades']:
     trades_df = pd.DataFrame(results['discharge_trades'])
     trades_df['Time'] = trades_df['Time'].dt.strftime('%Y-%m-%d %H:%M')
     
-    # Add total revenue for the table
     total_revenue_from_trades = trades_df['Revenue ($)'].sum()
     st.write(f"**Total Discharge Events:** {len(trades_df)} | **Total Discharge Revenue:** ${total_revenue_from_trades:,.0f}")
     
@@ -177,6 +178,6 @@ if results['discharge_trades']:
                  use_container_width=True,
                  hide_index=True)
 else:
-    st.info("No discharge trades occurred. Try lowering the sell threshold or checking if prices exceeded it when the battery was charged.")
+    st.info("No meaningful discharge trades occurred (zero or negligible kWh). Try lowering the sell threshold.")
 
-st.caption("Note: The graph and trades list are now guaranteed to appear. The graph has improved styling (grid, legend, thicker profit line). Trades table includes revenue per block and is sorted newest first.")
+st.caption("Zero-value/near-zero discharges are now filtered out of the list. Only trades with >0.01 kWh discharged are shown.")
