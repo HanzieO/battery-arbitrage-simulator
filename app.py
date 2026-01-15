@@ -132,4 +132,4 @@ st.header("Simulation Results")
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Gross Profit", f"${results['gross_profit']:,.0f}")
 col2.metric("Gross Annualized", f"${results['gross_annual']:,.0f}/year")
-col3.metric("Net Profit
+col3.metric("Net Profit)
