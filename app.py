@@ -62,10 +62,12 @@ def run_simulation(_df, power, capacity, buy, sell, ch_eff, dis_eff):
     profit_history = []
     cumulative_profit = 0.0
     
+    discharge_trades = []  # List to track discharge events
+    
     prices = _df['RRP_kWh'].values
     timestamps = _df['SETTLEMENTDATE']
     
-    for price in prices:
+    for idx, price in enumerate(prices):
         energy_moved = 0.0
         
         if price < buy and soc < capacity:
@@ -82,6 +84,13 @@ def run_simulation(_df, power, capacity, buy, sell, ch_eff, dis_eff):
             soc -= energy_moved * dis_eff
             discharge_revenue += energy_moved * price
             total_discharged_kwh += energy_moved  # Grid-side discharged energy
+            
+            # Record the discharge trade
+            discharge_trades.append({
+                'Time': timestamps[idx],
+                'Price ($/kWh)': price,
+                'kWh Discharged': energy_moved
+            })
         
         cumulative_profit = discharge_revenue - charge_cost
         soc_history.append(soc)
@@ -104,7 +113,8 @@ def run_simulation(_df, power, capacity, buy, sell, ch_eff, dis_eff):
         'final_soc': soc,
         'soc_history': soc_history,
         'profit_history': profit_history,
-        'timestamps': timestamps
+        'timestamps': timestamps,
+        'discharge_trades': discharge_trades
     }
 
 results = run_simulation(df, power_kw, capacity_kwh, buy_thresh, sell_thresh, charge_eff, discharge_eff)
@@ -122,27 +132,4 @@ st.header("Simulation Results")
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Gross Profit", f"${results['gross_profit']:,.0f}")
 col2.metric("Gross Annualized", f"${results['gross_annual']:,.0f}/year")
-col3.metric("Net Profit (after deductions)", f"${net_profit:,.0f}")
-col4.metric("Net Annualized", f"${net_annual:,.0f}/year")
-
-st.write(f"**Charging Cost:** ${results['charge_cost']:,.0f} | **Discharge Revenue:** ${results['discharge_revenue']:,.0f}")
-st.write(f"**Total Discharged:** {results['total_discharged_kwh']:,.0f} kWh")
-st.write(f"**Deductions:** Slippage ({slippage_pct:.1f}%): ${slippage_amount:,.0f} | Degradation ({degradation_cents_per_kwh:.1f}¢/kWh): ${degradation_cost:,.0f}")
-st.write(f"**Final Battery SoC:** {results['final_soc']:.1f} kWh (not credited)")
-
-# Plot (gross cumulative profit)
-fig, ax1 = plt.subplots(figsize=(12, 5))
-ax1.set_xlabel('Date')
-ax1.set_ylabel('State of Charge (kWh)', color='tab:blue')
-ax1.plot(results['timestamps'], results['soc_history'], color='tab:blue', linewidth=1)
-ax1.tick_params(axis='y', labelcolor='tab:blue')
-
-ax2 = ax1.twinx()
-ax2.set_ylabel('Cumulative Gross Profit ($)', color='tab:green')
-ax2.plot(results['timestamps'], results['profit_history'], color='tab:green', linewidth=1)
-ax2.tick_params(axis='y', labelcolor='tab:green')
-
-fig.tight_layout()
-st.pyplot(fig)
-
-st.caption("Note: Net profit deducts slippage % from gross profit and degradation cost from total discharged kWh. Plot shows gross profit only.")
+col3.metric("Net Profit
